@@ -38,11 +38,14 @@ tags: [co-op, multiplayer, netcode, il2cpp, native-hook, autopilot, automated-te
   First launch generates interop assemblies in `BepInEx/unhollowed` (UnhollowerBaseLib, not Il2CppInterop).
 - .NET 8 SDK; `ilspycmd` latest fails on .NET 8 → `dotnet tool install -g ilspycmd --version 8.2.0.7535`.
 - LiteNetLib 1.2.0 (UDP, MIT) shipped next to the plugin.
+- **Co-op scope.** Every player runs their own copy of TUNIC. LiteNetLib connects straight to the host's IP and
+  port, and the host relays to the others. Nothing goes through Steam networking or any other online service.
 
 ## Route and why
-BepInEx plugin + **native code hooks**. Harmony was the plan, but Harmony patches in this BepInEx build
-install and then never fire for game-internal calls (see Gotcha 1), so every hook that matters is a MonoMod
-`NativeDetour` on the IL2CPP method's native code. World state is mostly **polled**, not hooked.
+BepInEx plugin + **native code hooks**. Harmony was the plan, but our Harmony patches installed and then never
+fired (see Gotcha 1: the cause wasn't found, and Harmony on this BepInEx build does work for the TUNIC
+Randomizer), so every hook that matters is a MonoMod `NativeDetour` on the IL2CPP method's native code. World
+state is mostly **polled**, not hooked.
 
 ## How the game works (what we had to learn)
 - **Player**: `PlayerCharacter.instance` (static); `PlayerCharacter : Creature`; `Creature.cachedAnimator`;
@@ -84,11 +87,21 @@ An **in-mod autopilot** (`Debug.EnableAutopilot`): reads `BepInEx/coop_test/cmd.
 ways, enemies attacking the remote player (real hp loss), scene transitions, death + bloodstain recovery,
 3 players. **Not verified**: bosses, cutscenes, Steam networking, >3 players.
 
+The autopilot's input is a virtual device inside the game, so it never moves the OS mouse or keyboard. The
+second PC was set up with the human (they authorized the SSH key); gotcha 5 says what a remote launch does
+there. The same command-file pattern is written up in
+`knowledge/techniques/driving-a-game-from-a-mod-side-command-file-lab-profile-wake.md`.
+
 ## Gotchas
-1. **Harmony patches never fire.** Installed fine (`GetPatchedMethods` lists them), 0 calls on
-   `Chest.Interact`, a coroutine `MoveNext`, `SaveFile.SetInt`. **Cause:** pre.1's IL2CPP support only affects
-   calls through `il2cpp_runtime_invoke`, not native/vtable calls. **Fix:** `NativeDetour` on
-   `*(IntPtr*)NativeMethodInfoPtr_<method>` (first field of Il2CppMethodInfo = methodPointer); delegate
+1. **Harmony patches never fired for us.** Installed fine (`GetPatchedMethods` lists them), 0 calls on
+   `Chest.Interact`, a coroutine `MoveNext`, `SaveFile.SetInt`. **Cause:** not found. It isn't that pre.1 only
+   patches calls made through `il2cpp_runtime_invoke`: its `IL2CPPDetourMethodPatcher` detours the method's
+   native `MethodPointer` (a `FastNativeDetour`), so native and vtable callers reach the patch too. The TUNIC
+   Randomizer, on the same BepInEx build, patches `Chest.IInteractionReceiver_Interact`,
+   `Chest._openSequence_d__35.MoveNext` and `PlayerCharacter.Update` with Harmony; compare with its
+   `Harmony.Patch` calls in `src/TunicRandomizer.cs` before giving up on Harmony. **Fix that worked:**
+   `NativeDetour` on `*(IntPtr*)NativeMethodInfoPtr_<method>` (first field of Il2CppMethodInfo =
+   methodPointer); delegate
    `ret fn(IntPtr self, args…, IntPtr methodInfo)`; Win x64: Vector3 *args* by pointer, Vector3 *return* via a
    hidden first-arg buffer. Keep delegates alive. Verified with a counter on `PlayerCharacter.Update` (15k calls).
 2. **Injected MonoBehaviour crashes the game at load** (native, nothing logged) after adding an iterator method
@@ -102,6 +115,7 @@ ways, enemies attacking the remote player (real hp loss), scene transitions, dea
    inherited handles hang Unity's quit.
 5. **SSH can't start a windowed game.** Session 0. **Fix:** one-shot `schtasks /create … /it` → `/run` →
    `/delete` (date format may be yyyy/mm/dd); afterwards the game restarts itself from inside the session.
+   Ask the human first: `/it` starts the game on the desktop of whoever is logged in on that PC.
 6. **`ScreenCapture.CaptureScreenshot` is stripped** ("Method unstripping failed") and **`Camera.allCameras`
    throws** `ObjectCollectedException`. **Fix:** `FindObjectsOfType<Camera>`, render main + overlay
    (Depth/Nothing clear) cameras into a RenderTexture, `ReadPixels`, `ImageConversion.EncodeToPNG`.
@@ -137,6 +151,9 @@ One long agent session over ~2 days, plus two short human interventions (authori
 hung process the sandbox couldn't kill).
 
 ## Open questions
-- Bosses/cutscenes under per-monster ownership; Steam lobbies/P2P (Steamworks.NET ships in the game).
+- Bosses/cutscenes under per-monster ownership.
+- Internet play without port forwarding: a VPN or a self-hosted relay keeps it a direct connection.
+  Steamworks.NET ships in the game, but Steam lobbies/P2P would carry the mod's traffic over Steam's online
+  services under TUNIC's app ID, which the game doesn't use for multiplayer.
 - Why the tether-wand windup tentacles are invisible on the real fox (renderer flags, forceRenderingOff,
   bones, bounds, animator state, property blocks and materials were all identical).
