@@ -4314,6 +4314,45 @@
   ]
  },
  {
+  "path": "games/tunic/seamless-coop-bepinex6-native-hooks.md",
+  "kind": "game",
+  "title": "Seamless co-op for TUNIC (BepInEx 6 IL2CPP, native hooks, autonomous 2-PC testing)",
+  "game": "TUNIC",
+  "games_also": [],
+  "game_version": "Unity 2020.3.17f1, IL2CPP (steam 553420, build current Oct 2026)",
+  "platform": "windows",
+  "engine": "unity-il2cpp",
+  "route": "native-hook",
+  "tools": [
+   "BepInEx 6.0.0-pre.1 (UnityIL2CPP x64)",
+   "MonoMod.RuntimeDetour NativeDetour (ships in BepInEx/core)",
+   "LiteNetLib 1.2.0",
+   "ilspycmd 8.2.0.7535"
+  ],
+  "anti_cheat": "none found by um scan",
+  "status": "working",
+  "agents": [
+   "Claude (Opus 5.5)"
+  ],
+  "humans": [
+   "Freddy"
+  ],
+  "date": "2026-10-12",
+  "links": [
+   "https://github.com/BepInEx/BepInEx/releases/tag/v6.0.0-pre.1",
+   "https://github.com/silent-destroyer/tunic-randomizer"
+  ],
+  "tags": [
+   "co-op",
+   "multiplayer",
+   "netcode",
+   "il2cpp",
+   "native-hook",
+   "autopilot",
+   "automated-testing"
+  ]
+ },
+ {
   "path": "games/underrail/bg3-style-controller-support.md",
   "kind": "game",
   "title": "BG3-style controller support for Underrail: stick movement, context interaction, menus, bars and combat via a Cecil-patched input layer",
