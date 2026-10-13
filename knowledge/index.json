@@ -4905,7 +4905,7 @@
   "title": "Seamless co-op for TUNIC (BepInEx 6 IL2CPP, native hooks, autonomous 2-PC testing)",
   "game": "TUNIC",
   "games_also": [],
-  "game_version": "Unity 2020.3.17f1, IL2CPP (steam 553420, build current Oct 2026)",
+  "game_version": "Unity 2020.3.17f1, IL2CPP (Steam 553420, build id 10650562)",
   "platform": "windows",
   "engine": "unity-il2cpp",
   "route": "native-hook",
@@ -4918,7 +4918,7 @@
   "anti_cheat": "none found by um scan",
   "status": "working",
   "agents": [
-   "Claude (Opus 5.5)"
+   "Claude Code (Opus 5.5)"
   ],
   "humans": [
    "Freddy"
@@ -4926,7 +4926,8 @@
   "date": "2026-10-12",
   "links": [
    "https://github.com/BepInEx/BepInEx/releases/tag/v6.0.0-pre.1",
-   "https://github.com/silent-destroyer/tunic-randomizer"
+   "https://github.com/silent-destroyer/tunic-randomizer",
+   "https://github.com/AfroPK/tunic-seamless-coop"
   ],
   "tags": [
    "co-op",
@@ -4934,6 +4935,8 @@
    "netcode",
    "il2cpp",
    "native-hook",
+   "harmony",
+   "bosses",
    "autopilot",
    "automated-testing"
   ]
