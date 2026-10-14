@@ -29,9 +29,9 @@ tags: [co-op, multiplayer, netcode, il2cpp, native-hook, harmony, bosses, autopi
 
 > A 2–8 player co-op mod for TUNIC as a BepInEx 6 IL2CPP plugin: player puppets with smooth animation, shared
 > world flags, shared inventory/money, synced pots/coins/chests, per-enemy ownership with hit forwarding,
-> scene transitions and death/respawn. It runs in the real game: every feature was verified on two physical
+> scene transitions and death/respawn. It runs in the real game: the features were verified on two physical
 > PCs plus a third game instance by an in-mod test autopilot driven over files/SSH, checked via state
-> files, logs and screenshots the agent looked at.
+> files, logs and screenshots the agent looked at. Verification lists what wasn't.
 
 ## Setup
 - TUNIC (Steam 553420), Unity 2020.3.17f1, IL2CPP, product folder `AppData\LocalLow\Andrew Shouldice\Secret Legend`.
@@ -40,13 +40,18 @@ tags: [co-op, multiplayer, netcode, il2cpp, native-hook, harmony, bosses, autopi
 - .NET 8 SDK; `ilspycmd` latest fails on .NET 8 → `dotnet tool install -g ilspycmd --version 8.2.0.7535`.
 - LiteNetLib 1.2.0 (UDP, MIT) shipped next to the plugin.
 - **Co-op scope.** Every player runs their own copy of TUNIC. LiteNetLib connects straight to the host's IP and
-  port, and the host relays to the others. Nothing goes through Steam networking or any other online service.
+  port, and the host relays to the others. No game traffic goes through Steam networking or any other online
+  service. Since v0.2.0 the mod also does a few things online, each behind a config switch: it asks the host's
+  router to forward the port (UPnP), looks up the host's public address with one STUN request
+  (`stun.l.google.com`), can use a self-hosted introducer that only exchanges addresses, checks GitHub once per
+  launch for a newer release, and in a Steam copy sets Steam rich presence, so friends get "Join Game" with the
+  join code in its `connect` string.
 
 ## Route and why
 BepInEx plugin + **native code hooks**. The mod's hooks are MonoMod `NativeDetour`s on the IL2CPP methods'
 native code, because an early Harmony attempt seemed not to fire. A later re-test showed Harmony **does** work
 on this build (Gotcha 1), so either is fine for new work. World state is mostly **polled**, not hooked, because
-`SaveFile.SetInt`/`SetFloat`/`SetString` can't be hooked by anything.
+hooks on the `SaveFile.SetInt`/`SetFloat`/`SetString` setters never saw the game's own writes (Gotcha 1).
 
 ## How the game works (what we had to learn)
 - **Player**: `PlayerCharacter.instance` (static); `PlayerCharacter : Creature`; `Creature.cachedAnimator`;
@@ -67,7 +72,8 @@ on this build (Gotcha 1), so either is fine for new work. World state is mostly 
   `IDamageable_ReceiveDamage(dmg, poise, force, freeze, poison)`; `MonsterManager.checkMonster` deactivates
   monsters far from the *local* player.
 - **Scenes**: `ScenePortal` (`destinationSceneName`, `id`, trigger collider); `ScenePortal.DepartToScene(runner,
-  whiteout, duration, scene, id, pauseTime, delay)` is the clean programmatic transition.
+  whiteout, duration, scene, id, pauseTime, delay)` is the clean programmatic transition to a connected area
+  (for warps, see "Bosses, runtime spawns and sleepers").
 - **Input**: InControl. `PlayerInput.Actions` (PlayerCharacterActionSet); gamepad bindings read at runtime:
   InteractDodge=Action1, Item1=Action3, Item2=Action4, Item3=Action2, Flask=RB, Shield=RT.
 - **Title**: `TitleScreen.__Continue()/__NewGame()`; `FileManagementGUI.LoadFileAndStart(file)`.
@@ -98,19 +104,21 @@ there. The same command-file pattern is written up in
 `knowledge/techniques/driving-a-game-from-a-mod-side-command-file-lab-profile-wake.md`.
 
 ## Gotchas
-1. **"Harmony never fires" was wrong; `SaveFile.SetInt` really can't be hooked.** The first attempt saw
-   0 calls on `Chest.Interact`, a coroutine `MoveNext` and `SaveFile.SetInt`. **Re-test**, patched exactly like the
-   TUNIC Randomizer (`harmony.Patch(AccessTools.Method(...), postfix: new HarmonyMethod(...))`, counting postfixes,
-   no native detour on the same methods): `PlayerCharacter.Update` 57,941 calls, `Chest.IInteractionReceiver_Interact`
-   1 per chest opened by the player, `Chest._openSequence_d__35.MoveNext` 221, `SaveFile.SetInt` **0** while the
-   chest wrote `chest open 15 = 1`. So pre.1's `FastNativeDetour` on the `MethodPointer` catches native and
-   vtable callers. The first result was most likely a test that never really opened a chest: in the re-test the
-   fox first stood *behind* the chest and Interact never ran. `SetInt` and friends are tiny statics inlined
-   into their callers, so no hook sees them; poll the stores instead. Don't put Harmony and a `NativeDetour`
-   on the same method. **Native alternative (what the mod uses):** `NativeDetour` on
-   `*(IntPtr*)NativeMethodInfoPtr_<method>` (first field of Il2CppMethodInfo = methodPointer); delegate
+1. **"Harmony never fires" was wrong; hooks on `SaveFile.SetInt` miss the game's writes.** The first attempt
+   saw 0 calls on `Chest.Interact`, a coroutine `MoveNext` and `SaveFile.SetInt`. **Re-test**, patched exactly
+   like the TUNIC Randomizer (`harmony.Patch(AccessTools.Method(...), postfix: new HarmonyMethod(...))`,
+   counting postfixes, no native detour on the same methods): `PlayerCharacter.Update` 57,941 calls,
+   `Chest.IInteractionReceiver_Interact` 1 per chest opened by the player, `Chest._openSequence_d__35.MoveNext`
+   221, `SaveFile.SetInt` **0** while the chest wrote `chest open 15 = 1`. So pre.1's `FastNativeDetour` on the
+   `MethodPointer` catches native and vtable callers. The first result was most likely a test that never really
+   opened a chest: in the re-test the fox first stood *behind* the chest and Interact never ran. For the
+   setters, our explanation is that `SetInt` and friends are tiny statics inlined into their callers, where no
+   hook on them sees the write (not checked in the disassembly); either way, poll the stores instead. Don't put
+   Harmony and a `NativeDetour` on the same method. **Native alternative (what the mod uses):** `NativeDetour`
+   on `*(IntPtr*)NativeMethodInfoPtr_<method>` (first field of Il2CppMethodInfo = methodPointer); delegate
    `ret fn(IntPtr self, args…, IntPtr methodInfo)`; Win x64: Vector3 *args* by pointer, Vector3 *return* via a
-   hidden first-arg buffer. Keep delegates alive.
+   hidden first-arg buffer. Keep delegates alive. Verified with a counter on `PlayerCharacter.Update`
+   (15k calls).
 2. **Injected MonoBehaviour crashes the game at load** (native, nothing logged) after adding an iterator method
    and a `Nullable<Vector3>` return to the class. **Fix:** keep `ClassInjector` types to simple signatures;
    helpers in plain static classes.
@@ -171,8 +179,9 @@ there. The same command-file pattern is written up in
   `buildIndex * 1e6 + intraSceneID`, wake your copy, mirror the claimer's.
 - **Defaults aren't progress:** a scene writes new SaveFile keys = 0 on load; syncing them reset a teammate's
   altars. `Creature.ModifyDefensePower` doesn't affect direct `IDamageable_ReceiveDamage`: scale damage in
-  your own hook. `DownloadHandlerBuffer` is stripped (use `HttpWebRequest` + TLS 1.2); `steam_api64.dll` sits
-  in `Tunic_Data/Plugins/x86_64` where Mono's DllImport misses it (`GetModuleHandle` + `GetProcAddress`).
+  your own hook. `DownloadHandlerBuffer` is stripped (use `HttpWebRequest` + TLS 1.2); `steam_api64.dll`
+  (needed for rich presence) sits in `Tunic_Data/Plugins/x86_64`, where Mono's DllImport misses it
+  (`GetModuleHandle` + `GetProcAddress`).
 - **Test rig traps:** saves autosave in boss arenas, so the next session loads there; fast chasers close any
   distance you set up (freeze the boss's AI on its owner first); config changes made by one test persist.
 
